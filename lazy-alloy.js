@@ -147,7 +147,7 @@ Application = (function() {
       return app.ensureName();
     } else {
       console.debug('What should I generate?');
-      return app.program.choose(['controller', 'view'], app.ensureName);
+      return app.program.choose(['controller', 'view', 'model', 'widget'], app.ensureName);
     }
   };
 
@@ -180,6 +180,12 @@ Application = (function() {
         fromTo: ["jade", "xml"]
       };
     }
+    if (inpath("widgets/view")) {
+      return {
+        type: "widgets/view",
+        fromTo: ["jade", "xml"]
+      };
+    }
     if (!inpath(".coffee")) {
       return null;
     }
@@ -198,6 +204,24 @@ Application = (function() {
     if (inpath("controllers/")) {
       return {
         type: "controller",
+        fromTo: ["coffee", "js"]
+      };
+    }
+    if (inpath("widgets/style")) {
+      return {
+        type: "widgets/style",
+        fromTo: ["coffee", "tss"]
+      };
+    }
+    if (inpath("widgets/controller")) {
+      return {
+        type: "widgets/controller",
+        fromTo: ["coffee", "js"]
+      };
+    }
+    if (inpath("models/")) {
+      return {
+        type: "model",
         fromTo: ["coffee", "js"]
       };
     }
@@ -226,10 +250,30 @@ Compiler = (function() {
     return this.process("styles/", "coffee", "tss");
   };
 
+  Compiler.prototype.widgets = function() {
+    var widget, widgets, _i, _len, _results;
+    widgets = fs.readdirSync("" + this.subfolder + "/widgets");
+    _results = [];
+    for (_i = 0, _len = widgets.length; _i < _len; _i++) {
+      widget = widgets[_i];
+      this.process("widgets/" + widget + "/", "json", "json");
+      this.process("widgets/" + widget + "/views/", "jade", "xml");
+      this.process("widgets/" + widget + "/styles/", "coffee", "tss");
+      _results.push(this.process("widgets/" + widget + "/controllers/", "coffee", "js"));
+    }
+    return _results;
+  };
+
+  Compiler.prototype.models = function() {
+    return this.process("models/", "coffee", "js");
+  };
+
   Compiler.prototype.all = function() {
     this.views();
     this.controllers();
-    return this.styles();
+    this.styles();
+    this.widgets();
+    return this.models();
   };
 
   Compiler.prototype.process = function(path, from, to) {
@@ -252,6 +296,7 @@ Compiler = (function() {
     this.logger.debug("Building " + type + ": " + from + " --> " + output);
     data = fs.readFileSync(from, 'utf8');
     compiled = this.build[type](data);
+    this.mkdirPSync(output.split('/').slice(0, -1));
     return fs.writeFileSync(output, compiled, 'utf8');
   };
 
@@ -287,7 +332,28 @@ Compiler = (function() {
       return coffee.compile(data.toString(), {
         bare: true
       });
+    },
+    json: function(data) {
+      return data;
     }
+  };
+
+  Compiler.prototype.mkdirPSync = function(segments, pos) {
+    var segment;
+    if (pos == null) {
+      pos = 0;
+    }
+    if (pos >= segments.length) {
+      return;
+    }
+    segment = segments[pos];
+    path = segments.slice(0, +pos + 1 || 9e9).join('/');
+    if (path.length > 0) {
+      if (!fs.existsSync(path)) {
+        fs.mkdirSync(path);
+      }
+    }
+    return this.mkdirPSync(segments, pos + 1);
   };
 
   return Compiler;
@@ -295,16 +361,18 @@ Compiler = (function() {
 })();
 
 Generator = (function() {
-  var createController, createStyle, createView, execUnlessExists, mkdir, not_yet_implemented, touch;
+  var createController, createModel, createStyle, createView, createWidget, execUnlessExists, mkdir, not_yet_implemented, touch;
 
   function Generator() {}
 
   Generator.prototype.setup = function(subfolder) {
-    console.info('Setting up folder structure...');
+    console.info("Setting up folder structure at " + subfolder);
     mkdir(subfolder);
     mkdir(subfolder + 'views');
     mkdir(subfolder + 'styles');
     mkdir(subfolder + 'controllers');
+    mkdir(subfolder + 'widgets');
+    mkdir(subfolder + 'models');
     console.debug('Setup complete.');
     return process.exit();
   };
@@ -313,6 +381,9 @@ Generator = (function() {
     switch (type) {
       case 'controller':
         createController(name);
+        break;
+      case 'model':
+        createModel(name);
         break;
       case 'jmk':
         not_yet_implemented();
@@ -327,7 +398,7 @@ Generator = (function() {
         createView(name);
         break;
       case 'widget':
-        not_yet_implemented();
+        createWidget(name);
         break;
       default:
         console.info("Don't know how to build " + type);
@@ -350,6 +421,24 @@ Generator = (function() {
   createStyle = function(name) {
     console.debug("Building style " + name);
     return touch(app.subfolder + 'styles/' + name + '.coffee');
+  };
+
+  createWidget = function(name) {
+    console.debug("Creating widget " + name);
+    mkdir(app.subfolder + 'widgets/');
+    mkdir(app.subfolder + 'widgets/' + name);
+    mkdir(app.subfolder + 'widgets/' + name + '/controllers/');
+    mkdir(app.subfolder + 'widgets/' + name + '/views/');
+    mkdir(app.subfolder + 'widgets/' + name + '/styles/');
+    touch(app.subfolder + 'widgets/' + name + '/controllers/widget.coffee');
+    touch(app.subfolder + 'widgets/' + name + '/views/widget.jade');
+    return touch(app.subfolder + 'widgets/' + name + '/styles/widget.coffee');
+  };
+
+  createModel = function(name) {
+    console.debug("Creating model " + name);
+    touch(app.subfolder + 'models/' + name + '.coffee');
+    return createView(name);
   };
 
   not_yet_implemented = function() {
